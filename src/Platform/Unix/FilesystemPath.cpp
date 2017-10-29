@@ -72,13 +72,28 @@ namespace VeraCrypt
 
 		path = StringConverter::StripTrailingNumber (StringConverter::ToSingle (Path));
 
-		// If the system-encrypted partition is on a nvme drive, partition name will be
-		// something like /dev/nvme0n1p<partition_number>, therefore we have to remove
-		// the last 'p' as well to get the name of the host drive.
-		string pathStr = StringConverter::ToSingle (path);
-		size_t t = pathStr.find("nvme");
-		if(t != string::npos)
-			path = pathStr.substr (0, pathStr.size() - 1);
+		// If simply removing trailing number didn't produce a valid drive name, try to use sysfs to get the right one
+		if (!path.IsDevice()) {
+			struct stat st;
+
+			if(stat (StringConverter::ToSingle (Path).c_str (), &st) == 0) {
+				const long maxPathLength = pathconf ("/", _PC_PATH_MAX);
+
+				if(maxPathLength != -1) {
+					string linkPathName ("/sys/dev/block/");
+					linkPathName += StringConverter::ToSingle (major (st.st_rdev)) + string (":") + StringConverter::ToSingle (minor (st.st_rdev));
+
+					char linkTargetPath[maxPathLength+1] = "";
+
+					if(readlink(linkPathName.c_str (), linkTargetPath, sizeof (linkTargetPath)) != -1) {
+						const string targetPathStr (linkTargetPath);
+						const size_t lastSlashPos = targetPathStr.find_last_of ('/');
+						const size_t secondLastSlashPos = targetPathStr.find_last_of ('/', lastSlashPos-1);
+						path = string ("/dev/") + targetPathStr.substr (secondLastSlashPos+1, lastSlashPos-secondLastSlashPos-1);
+					}
+				}
+			}
+		}
 
 #elif defined (TC_MACOSX)
 
